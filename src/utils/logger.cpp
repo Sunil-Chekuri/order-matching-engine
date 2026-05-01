@@ -14,7 +14,7 @@ std::mutex Logger::log_mutex;
 void Logger::init()
 {
     log_file.open(
-        "C:\\Users\\91630\\OneDrive\\Documents\\Projects\\order-matching-engine\\logs\\engine.log",
+        "give log file location here",
         std::ios::app);
 
     if (!log_file.is_open())
