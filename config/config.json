@@ -1,0 +1,6 @@
+{
+    "engine": {
+        "max_order_size": 100000,
+        "log_level": "INFO"
+    }
+}
