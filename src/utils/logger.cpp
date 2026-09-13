@@ -14,7 +14,7 @@ std::mutex Logger::log_mutex;
 void Logger::init()
 {
     log_file.open(
-        "give log file location here",
+        "../logs/engine.log",
         std::ios::app);
 
     if (!log_file.is_open())
@@ -83,16 +83,19 @@ void Logger::log(
     std::lock_guard<std::mutex>
         lock(log_mutex);
 
+    std::string line =
+        currentTime() +
+        " [" +
+        levelToString(level) +
+        "] " +
+        message;
+
     if (log_file.is_open())
     {
-        log_file
-            << currentTime()
-            << " ["
-            << levelToString(level)
-            << "] "
-            << message
-            << std::endl;
+        log_file << line << std::endl;
     }
+
+    std::cout << line << std::endl;
 }
 
 void Logger::shutdown()
