@@ -1,5 +1,7 @@
 #include "core/trade.h"
 
+#include <stdexcept>
+
 Trade::Trade(
     int id,
     int buy_id,
@@ -12,4 +14,9 @@ Trade::Trade(
       price(p),
       quantity(qty)
 {
+    if (p <= 0.0)
+        throw std::invalid_argument("Trade price must be positive");
+
+    if (qty <= 0)
+        throw std::invalid_argument("Trade quantity must be positive");
 }

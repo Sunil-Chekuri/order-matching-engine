@@ -1,5 +1,7 @@
 #include "engine/order_book.h"
 
+#include <stdexcept>
+
 void OrderBook::addOrder(const Order &order)
 {
     if (order.side == Side::BUY)
@@ -31,16 +33,25 @@ bool OrderBook::hasMatch()
 
 Order &OrderBook::bestBid()
 {
+    if (bids.empty())
+        throw std::out_of_range("No bids in the order book");
+
     return bids.begin()->second.front();
 }
 
 Order &OrderBook::bestAsk()
 {
+    if (asks.empty())
+        throw std::out_of_range("No asks in the order book");
+
     return asks.begin()->second.front();
 }
 
 void OrderBook::removeBestBid()
 {
+    if (bids.empty())
+        throw std::out_of_range("No bids in the order book");
+
     bids.begin()->second.pop_front();
 
     if (bids.begin()->second.empty())
@@ -49,6 +60,9 @@ void OrderBook::removeBestBid()
 
 void OrderBook::removeBestAsk()
 {
+    if (asks.empty())
+        throw std::out_of_range("No asks in the order book");
+
     asks.begin()->second.pop_front();
 
     if (asks.begin()->second.empty())

@@ -2,3 +2,5 @@
 build/
 .vscode/
 logs/
+PROJECT_STATE.md
+docs/DAILY_LOG.md
