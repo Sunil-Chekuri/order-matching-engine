@@ -12,6 +12,10 @@ private:
 
     int total_trades = 0;
 
+    void matchAggressively(
+        Order incoming,
+        bool respect_price);
+
 public:
     void processOrder(
         const Order &order);

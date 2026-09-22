@@ -32,6 +32,10 @@ public:
 
     bool hasMatch();
 
+    bool hasBids();
+
+    bool hasAsks();
+
     Order &bestBid();
 
     Order &bestAsk();
@@ -42,4 +46,8 @@ public:
 
     bool cancelOrder(
         int order_id);
+
+    int availableToMatch(
+        Side incoming_side,
+        double limit_price);
 };

@@ -8,6 +8,14 @@ enum class Side
     SELL
 };
 
+enum class OrderType
+{
+    LIMIT,
+    MARKET,
+    IOC,
+    FOK
+};
+
 class Order
 {
 public:
@@ -15,6 +23,7 @@ public:
     double price;
     int quantity;
     Side side;
+    OrderType type;
 
     std::chrono::high_resolution_clock::time_point timestamp;
 
@@ -22,5 +31,6 @@ public:
         int id,
         double p,
         int qty,
-        Side s);
+        Side s,
+        OrderType t = OrderType::LIMIT);
 };

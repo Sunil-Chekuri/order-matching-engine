@@ -48,3 +48,21 @@ TEST(OrderTest, ThrowsOnNegativeQuantity)
 {
     EXPECT_THROW(Order(7, 100.0, -5, Side::BUY), std::invalid_argument);
 }
+
+TEST(OrderTest, DefaultsToLimitTypeWhenUnspecified)
+{
+    Order order(8, 100.0, 10, Side::BUY);
+
+    EXPECT_EQ(order.type, OrderType::LIMIT);
+}
+
+TEST(OrderTest, PreservesExplicitOrderType)
+{
+    Order market(9, 100.0, 10, Side::BUY, OrderType::MARKET);
+    Order ioc(10, 100.0, 10, Side::BUY, OrderType::IOC);
+    Order fok(11, 100.0, 10, Side::BUY, OrderType::FOK);
+
+    EXPECT_EQ(market.type, OrderType::MARKET);
+    EXPECT_EQ(ioc.type, OrderType::IOC);
+    EXPECT_EQ(fok.type, OrderType::FOK);
+}

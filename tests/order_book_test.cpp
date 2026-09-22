@@ -197,3 +197,54 @@ TEST(OrderBookTest, CancelOrderLeavesOtherPriceLevelsIntact)
 
     EXPECT_EQ(book.bestBid().order_id, 1);
 }
+
+TEST(OrderBookTest, HasBidsAndHasAsksReflectBookState)
+{
+    OrderBook book;
+
+    EXPECT_FALSE(book.hasBids());
+    EXPECT_FALSE(book.hasAsks());
+
+    book.addOrder(Order(1, 100.0, 10, Side::BUY));
+    EXPECT_TRUE(book.hasBids());
+    EXPECT_FALSE(book.hasAsks());
+
+    book.addOrder(Order(2, 100.0, 10, Side::SELL));
+    EXPECT_TRUE(book.hasAsks());
+}
+
+TEST(OrderBookTest, AvailableToMatchSumsAsksAtOrBelowLimitForIncomingBuy)
+{
+    OrderBook book;
+    book.addOrder(Order(1, 99.0, 5, Side::SELL));
+    book.addOrder(Order(2, 100.0, 5, Side::SELL));
+    book.addOrder(Order(3, 101.0, 5, Side::SELL));
+
+    EXPECT_EQ(book.availableToMatch(Side::BUY, 100.0), 10);
+}
+
+TEST(OrderBookTest, AvailableToMatchSumsBidsAtOrAboveLimitForIncomingSell)
+{
+    OrderBook book;
+    book.addOrder(Order(1, 101.0, 5, Side::BUY));
+    book.addOrder(Order(2, 100.0, 5, Side::BUY));
+    book.addOrder(Order(3, 99.0, 5, Side::BUY));
+
+    EXPECT_EQ(book.availableToMatch(Side::SELL, 100.0), 10);
+}
+
+TEST(OrderBookTest, AvailableToMatchIsZeroWhenNothingCrosses)
+{
+    OrderBook book;
+    book.addOrder(Order(1, 105.0, 5, Side::SELL));
+
+    EXPECT_EQ(book.availableToMatch(Side::BUY, 100.0), 0);
+}
+
+TEST(OrderBookTest, AvailableToMatchIsZeroOnEmptyBook)
+{
+    OrderBook book;
+
+    EXPECT_EQ(book.availableToMatch(Side::BUY, 100.0), 0);
+    EXPECT_EQ(book.availableToMatch(Side::SELL, 100.0), 0);
+}

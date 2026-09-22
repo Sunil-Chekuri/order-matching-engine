@@ -31,6 +31,16 @@ bool OrderBook::hasMatch()
     return bids.begin()->first >= asks.begin()->first;
 }
 
+bool OrderBook::hasBids()
+{
+    return !bids.empty();
+}
+
+bool OrderBook::hasAsks()
+{
+    return !asks.empty();
+}
+
 Order &OrderBook::bestBid()
 {
     if (bids.empty())
@@ -52,10 +62,14 @@ void OrderBook::removeBestBid()
     if (bids.empty())
         throw std::out_of_range("No bids in the order book");
 
+    int filled_order_id = bids.begin()->second.front().order_id;
+
     bids.begin()->second.pop_front();
 
     if (bids.begin()->second.empty())
         bids.erase(bids.begin());
+
+    order_registry.erase(filled_order_id);
 }
 
 void OrderBook::removeBestAsk()
@@ -63,10 +77,14 @@ void OrderBook::removeBestAsk()
     if (asks.empty())
         throw std::out_of_range("No asks in the order book");
 
+    int filled_order_id = asks.begin()->second.front().order_id;
+
     asks.begin()->second.pop_front();
 
     if (asks.begin()->second.empty())
         asks.erase(asks.begin());
+
+    order_registry.erase(filled_order_id);
 }
 
 bool OrderBook::cancelOrder(
@@ -137,4 +155,36 @@ bool OrderBook::cancelOrder(
     order_registry.erase(it);
 
     return true;
+}
+
+int OrderBook::availableToMatch(
+    Side incoming_side,
+    double limit_price)
+{
+    int total = 0;
+
+    if (incoming_side == Side::BUY)
+    {
+        for (const auto &level : asks)
+        {
+            if (level.first > limit_price)
+                break;
+
+            for (const auto &order : level.second)
+                total += order.quantity;
+        }
+    }
+    else
+    {
+        for (const auto &level : bids)
+        {
+            if (level.first < limit_price)
+                break;
+
+            for (const auto &order : level.second)
+                total += order.quantity;
+        }
+    }
+
+    return total;
 }

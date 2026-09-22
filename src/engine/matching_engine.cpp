@@ -6,6 +6,39 @@
 void MatchingEngine::processOrder(
     const Order &order)
 {
+    switch (order.type)
+    {
+        case OrderType::MARKET:
+            // No price limit: sweep whatever liquidity exists. Any
+            // unfilled remainder is discarded, never rests in the book.
+            matchAggressively(order, false);
+            return;
+
+        case OrderType::IOC:
+            // Same sweep, but only against prices that cross the
+            // order's own limit price. Unfilled remainder is discarded.
+            matchAggressively(order, true);
+            return;
+
+        case OrderType::FOK:
+        {
+            // All-or-nothing: only execute if the full quantity can be
+            // filled immediately: otherwise the order is killed with no
+            // trades and no partial fills at all.
+            int available =
+                book.availableToMatch(order.side, order.price);
+
+            if (available >= order.quantity)
+                matchAggressively(order, true);
+
+            return;
+        }
+
+        case OrderType::LIMIT:
+        default:
+            break;
+    }
+
     book.addOrder(order);
 
     while (book.hasMatch())
@@ -52,6 +85,82 @@ void MatchingEngine::processOrder(
         if (sell.quantity == 0)
         {
             book.removeBestAsk();
+        }
+    }
+}
+
+void MatchingEngine::matchAggressively(
+    Order incoming,
+    bool respect_price)
+{
+    while (incoming.quantity > 0)
+    {
+        bool oppositeAvailable =
+            (incoming.side == Side::BUY)
+                ? book.hasAsks()
+                : book.hasBids();
+
+        if (!oppositeAvailable)
+            break;
+
+        Order &resting =
+            (incoming.side == Side::BUY)
+                ? book.bestAsk()
+                : book.bestBid();
+
+        if (respect_price)
+        {
+            bool crosses =
+                (incoming.side == Side::BUY)
+                    ? (resting.price <= incoming.price)
+                    : (resting.price >= incoming.price);
+
+            if (!crosses)
+                break;
+        }
+
+        int qty =
+            std::min(
+                incoming.quantity,
+                resting.quantity);
+
+        trade_counter++;
+
+        int buy_id =
+            (incoming.side == Side::BUY)
+                ? incoming.order_id
+                : resting.order_id;
+
+        int sell_id =
+            (incoming.side == Side::BUY)
+                ? resting.order_id
+                : incoming.order_id;
+
+        Trade trade(
+            trade_counter,
+            buy_id,
+            sell_id,
+            resting.price,
+            qty);
+
+        total_trades++;
+
+        if (total_trades % 1000 == 0)
+        {
+            Logger::log(
+                LogLevel::INFO,
+                "Trades executed: " + std::to_string(total_trades));
+        }
+
+        incoming.quantity -= qty;
+        resting.quantity -= qty;
+
+        if (resting.quantity == 0)
+        {
+            if (incoming.side == Side::BUY)
+                book.removeBestAsk();
+            else
+                book.removeBestBid();
         }
     }
 }

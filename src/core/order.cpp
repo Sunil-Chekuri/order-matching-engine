@@ -6,11 +6,13 @@ Order::Order(
     int id,
     double p,
     int qty,
-    Side s)
+    Side s,
+    OrderType t)
     : order_id(id),
       price(p),
       quantity(qty),
       side(s),
+      type(t),
       timestamp(
           std::chrono::high_resolution_clock::now())
 {
