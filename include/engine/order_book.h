@@ -49,5 +49,10 @@ public:
 
     int availableToMatch(
         Side incoming_side,
-        double limit_price);
+        double limit_price,
+        int participant_id = 0);
+
+    bool getRemainingQuantity(
+        int order_id,
+        int &out_quantity);
 };

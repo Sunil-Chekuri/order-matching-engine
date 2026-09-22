@@ -138,3 +138,104 @@ TEST(OrderTypesTest, FokIgnoresLiquidityThatDoesNotCrossItsLimit)
     EXPECT_TRUE(engine.cancelOrder(1));
     EXPECT_TRUE(engine.cancelOrder(2));
 }
+
+// ---- Quantity bookkeeping audit for aggressive order types (Day 6) ----
+
+TEST(OrderTypesTest, MarketOrderLeavesExactRemainingQuantityOnRestingSide)
+{
+    MatchingEngine engine;
+    engine.processOrder(Order(1, 100.0, 10, Side::SELL));
+
+    engine.processOrder(Order(2, 1.0, 4, Side::BUY, OrderType::MARKET));
+
+    int qty = -1;
+    ASSERT_TRUE(engine.getRemainingQuantity(1, qty));
+    EXPECT_EQ(qty, 6);
+}
+
+TEST(OrderTypesTest, IocLeavesExactRemainingQuantityOnRestingSide)
+{
+    MatchingEngine engine;
+    engine.processOrder(Order(1, 100.0, 10, Side::SELL));
+
+    engine.processOrder(Order(2, 100.0, 4, Side::BUY, OrderType::IOC));
+
+    int qty = -1;
+    ASSERT_TRUE(engine.getRemainingQuantity(1, qty));
+    EXPECT_EQ(qty, 6);
+}
+
+TEST(OrderTypesTest, FokLeavesExactRemainingQuantityOnLastPartiallyConsumedLevel)
+{
+    // A successful FOK can still only partially consume the final
+    // resting order it touches once the incoming quantity is exhausted.
+    MatchingEngine engine;
+    engine.processOrder(Order(1, 99.0, 5, Side::SELL));
+    engine.processOrder(Order(2, 100.0, 10, Side::SELL));
+
+    engine.processOrder(Order(3, 100.0, 10, Side::BUY, OrderType::FOK));
+
+    EXPECT_EQ(engine.getTotalTrades(), 2);
+
+    int qty = -1;
+    ASSERT_TRUE(engine.getRemainingQuantity(2, qty));
+    EXPECT_EQ(qty, 5); // 10 - (10 - 5 already taken from order 1)
+}
+
+// ---- Self-trade prevention for aggressive order types (Day 6) ----
+
+TEST(OrderTypesTest, MarketOrderSelfTradeIsBlocked)
+{
+    MatchingEngine engine;
+    engine.processOrder(Order(1, 100.0, 10, Side::SELL, OrderType::LIMIT, 1));
+
+    engine.processOrder(Order(2, 1.0, 10, Side::BUY, OrderType::MARKET, 1));
+
+    EXPECT_EQ(engine.getTotalTrades(), 0);
+
+    int qty = -1;
+    ASSERT_TRUE(engine.getRemainingQuantity(1, qty));
+    EXPECT_EQ(qty, 10);
+}
+
+TEST(OrderTypesTest, IocSelfTradeIsBlocked)
+{
+    MatchingEngine engine;
+    engine.processOrder(Order(1, 100.0, 10, Side::SELL, OrderType::LIMIT, 1));
+
+    engine.processOrder(Order(2, 100.0, 10, Side::BUY, OrderType::IOC, 1));
+
+    EXPECT_EQ(engine.getTotalTrades(), 0);
+
+    int qty = -1;
+    ASSERT_TRUE(engine.getRemainingQuantity(1, qty));
+    EXPECT_EQ(qty, 10);
+}
+
+TEST(OrderTypesTest, FokPreCheckAccountsForSelfTradeBlockingBetterPricedLevel)
+{
+    // Regression test for an interaction bug between self-trade
+    // prevention and FOK's all-or-nothing pre-check: order 1 (the best
+    // price) belongs to the same participant as the incoming FOK, so
+    // matching will stop immediately upon reaching it and order 2 is
+    // never actually reachable. A pre-check that naively summed *all*
+    // crossing quantity regardless of participant would see 5 + 10 = 15
+    // available (enough for the FOK's 10), let the order proceed, and
+    // then it would fill 0 units when matching immediately hits the
+    // self-order and stops. availableToMatch must stop counting at the
+    // same self-order matching would actually stop at, so the pre-check
+    // correctly reports 0 available and the FOK is killed outright.
+    MatchingEngine engine;
+    engine.processOrder(Order(1, 99.0, 5, Side::SELL, OrderType::LIMIT, 1));  // self
+    engine.processOrder(Order(2, 100.0, 10, Side::SELL, OrderType::LIMIT, 2)); // not self
+
+    engine.processOrder(Order(3, 100.0, 10, Side::BUY, OrderType::FOK, 1));
+
+    EXPECT_EQ(engine.getTotalTrades(), 0);
+
+    int qty = -1;
+    ASSERT_TRUE(engine.getRemainingQuantity(1, qty));
+    EXPECT_EQ(qty, 5);
+    ASSERT_TRUE(engine.getRemainingQuantity(2, qty));
+    EXPECT_EQ(qty, 10);
+}

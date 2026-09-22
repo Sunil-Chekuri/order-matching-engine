@@ -23,6 +23,10 @@ public:
     bool cancelOrder(
         int order_id);
 
+    bool getRemainingQuantity(
+        int order_id,
+        int &out_quantity);
+
     int getTotalTrades() const
     {
         return total_trades;

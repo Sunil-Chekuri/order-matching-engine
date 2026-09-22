@@ -159,7 +159,8 @@ bool OrderBook::cancelOrder(
 
 int OrderBook::availableToMatch(
     Side incoming_side,
-    double limit_price)
+    double limit_price,
+    int participant_id)
 {
     int total = 0;
 
@@ -171,7 +172,18 @@ int OrderBook::availableToMatch(
                 break;
 
             for (const auto &order : level.second)
+            {
+                // Matching stops the instant a self-trade would occur, so
+                // liquidity behind a self-order is not actually reachable:
+                // it must not be counted as available either, or an FOK
+                // order could be told "yes, fully fillable" and then only
+                // partially fill (or not fill at all) once matching
+                // actually runs and hits that same self-order first.
+                if (participant_id != 0 && order.participant_id == participant_id)
+                    return total;
+
                 total += order.quantity;
+            }
         }
     }
     else
@@ -182,9 +194,28 @@ int OrderBook::availableToMatch(
                 break;
 
             for (const auto &order : level.second)
+            {
+                if (participant_id != 0 && order.participant_id == participant_id)
+                    return total;
+
                 total += order.quantity;
+            }
         }
     }
 
     return total;
+}
+
+bool OrderBook::getRemainingQuantity(
+    int order_id,
+    int &out_quantity)
+{
+    auto it = order_registry.find(order_id);
+
+    if (it == order_registry.end())
+        return false;
+
+    out_quantity = it->second->quantity;
+
+    return true;
 }

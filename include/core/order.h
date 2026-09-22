@@ -25,6 +25,10 @@ public:
     Side side;
     OrderType type;
 
+    // 0 means "no participant specified" and never triggers self-trade
+    // prevention, even against another order that also defaults to 0.
+    int participant_id;
+
     std::chrono::high_resolution_clock::time_point timestamp;
 
     Order(
@@ -32,5 +36,6 @@ public:
         double p,
         int qty,
         Side s,
-        OrderType t = OrderType::LIMIT);
+        OrderType t = OrderType::LIMIT,
+        int participant_id = 0);
 };

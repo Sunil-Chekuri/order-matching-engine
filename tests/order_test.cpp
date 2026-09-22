@@ -66,3 +66,17 @@ TEST(OrderTest, PreservesExplicitOrderType)
     EXPECT_EQ(ioc.type, OrderType::IOC);
     EXPECT_EQ(fok.type, OrderType::FOK);
 }
+
+TEST(OrderTest, DefaultsToNoParticipantWhenUnspecified)
+{
+    Order order(12, 100.0, 10, Side::BUY);
+
+    EXPECT_EQ(order.participant_id, 0);
+}
+
+TEST(OrderTest, PreservesExplicitParticipantId)
+{
+    Order order(13, 100.0, 10, Side::BUY, OrderType::LIMIT, 42);
+
+    EXPECT_EQ(order.participant_id, 42);
+}

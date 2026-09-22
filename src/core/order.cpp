@@ -7,12 +7,14 @@ Order::Order(
     double p,
     int qty,
     Side s,
-    OrderType t)
+    OrderType t,
+    int participant_id)
     : order_id(id),
       price(p),
       quantity(qty),
       side(s),
       type(t),
+      participant_id(participant_id),
       timestamp(
           std::chrono::high_resolution_clock::now())
 {

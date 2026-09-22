@@ -26,7 +26,10 @@ void MatchingEngine::processOrder(
             // filled immediately: otherwise the order is killed with no
             // trades and no partial fills at all.
             int available =
-                book.availableToMatch(order.side, order.price);
+                book.availableToMatch(
+                    order.side,
+                    order.price,
+                    order.participant_id);
 
             if (available >= order.quantity)
                 matchAggressively(order, true);
@@ -48,6 +51,16 @@ void MatchingEngine::processOrder(
 
         Order &sell =
             book.bestAsk();
+
+        // Self-trade prevention: stop matching entirely rather than let
+        // the same participant's buy and sell trade against each other.
+        // This is a simple "stop at top of book" policy, not a full
+        // skip-ahead implementation: it does not look past a blocking
+        // self-order to find other resting liquidity behind it. See
+        // docs/DAILY_LOG.md (Day 6) for why, and what a fuller
+        // implementation would need.
+        if (buy.participant_id != 0 && buy.participant_id == sell.participant_id)
+            break;
 
         int qty =
             std::min(
@@ -108,6 +121,9 @@ void MatchingEngine::matchAggressively(
                 ? book.bestAsk()
                 : book.bestBid();
 
+        if (incoming.participant_id != 0 && incoming.participant_id == resting.participant_id)
+            break;
+
         if (respect_price)
         {
             bool crosses =
@@ -163,6 +179,13 @@ void MatchingEngine::matchAggressively(
                 book.removeBestBid();
         }
     }
+}
+
+bool MatchingEngine::getRemainingQuantity(
+    int order_id,
+    int &out_quantity)
+{
+    return book.getRemainingQuantity(order_id, out_quantity);
 }
 
 bool MatchingEngine::cancelOrder(

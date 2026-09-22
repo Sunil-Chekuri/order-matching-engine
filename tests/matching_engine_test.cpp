@@ -136,3 +136,83 @@ TEST(MatchingEngineTest, TradeCounterAndTotalTradesStayInSync)
     EXPECT_EQ(engine.getTradeCounter(), engine.getTotalTrades());
     EXPECT_EQ(engine.getTotalTrades(), 2);
 }
+
+// ---- Quantity bookkeeping audit (Day 6) ----
+// Prior partial-fill tests only checked whether an order was still
+// resting (via cancelOrder's true/false), never the exact leftover
+// quantity. A bug that decremented quantity by the wrong amount would
+// have slipped past all of them. These use getRemainingQuantity to
+// check the actual numbers.
+
+TEST(MatchingEngineTest, PartialFillLeavesExactRemainingQuantityOnBuy)
+{
+    MatchingEngine engine;
+    engine.processOrder(Order(1, 100.0, 10, Side::BUY));
+    engine.processOrder(Order(2, 100.0, 4, Side::SELL));
+
+    int qty = -1;
+    ASSERT_TRUE(engine.getRemainingQuantity(1, qty));
+    EXPECT_EQ(qty, 6);
+}
+
+TEST(MatchingEngineTest, PartialFillLeavesExactRemainingQuantityOnSell)
+{
+    MatchingEngine engine;
+    engine.processOrder(Order(1, 100.0, 4, Side::BUY));
+    engine.processOrder(Order(2, 100.0, 10, Side::SELL));
+
+    int qty = -1;
+    ASSERT_TRUE(engine.getRemainingQuantity(2, qty));
+    EXPECT_EQ(qty, 6);
+}
+
+TEST(MatchingEngineTest, MultipleSequentialPartialFillsAccumulateCorrectly)
+{
+    MatchingEngine engine;
+    engine.processOrder(Order(1, 100.0, 20, Side::BUY));
+    engine.processOrder(Order(2, 100.0, 3, Side::SELL));
+    engine.processOrder(Order(3, 100.0, 5, Side::SELL));
+    engine.processOrder(Order(4, 100.0, 2, Side::SELL));
+
+    int qty = -1;
+    ASSERT_TRUE(engine.getRemainingQuantity(1, qty));
+    EXPECT_EQ(qty, 10); // 20 - 3 - 5 - 2
+    EXPECT_EQ(engine.getTotalTrades(), 3);
+}
+
+// ---- Self-trade prevention (Day 6) ----
+
+TEST(MatchingEngineTest, SelfTradeIsBlockedForLimitOrders)
+{
+    MatchingEngine engine;
+    engine.processOrder(Order(1, 100.0, 10, Side::BUY, OrderType::LIMIT, 1));
+    engine.processOrder(Order(2, 100.0, 10, Side::SELL, OrderType::LIMIT, 1));
+
+    EXPECT_EQ(engine.getTotalTrades(), 0);
+
+    int qty = -1;
+    ASSERT_TRUE(engine.getRemainingQuantity(1, qty));
+    EXPECT_EQ(qty, 10);
+    ASSERT_TRUE(engine.getRemainingQuantity(2, qty));
+    EXPECT_EQ(qty, 10);
+}
+
+TEST(MatchingEngineTest, DifferentParticipantsStillMatchNormally)
+{
+    MatchingEngine engine;
+    engine.processOrder(Order(1, 100.0, 10, Side::BUY, OrderType::LIMIT, 1));
+    engine.processOrder(Order(2, 100.0, 10, Side::SELL, OrderType::LIMIT, 2));
+
+    EXPECT_EQ(engine.getTotalTrades(), 1);
+}
+
+TEST(MatchingEngineTest, UnspecifiedParticipantsNeverTriggerSelfTradeBlock)
+{
+    // Both orders default participant_id to 0 ("unspecified"); 0 must
+    // never be treated as a shared identity between two such orders.
+    MatchingEngine engine;
+    engine.processOrder(Order(1, 100.0, 10, Side::BUY));
+    engine.processOrder(Order(2, 100.0, 10, Side::SELL));
+
+    EXPECT_EQ(engine.getTotalTrades(), 1);
+}

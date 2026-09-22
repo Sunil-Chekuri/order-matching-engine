@@ -248,3 +248,61 @@ TEST(OrderBookTest, AvailableToMatchIsZeroOnEmptyBook)
     EXPECT_EQ(book.availableToMatch(Side::BUY, 100.0), 0);
     EXPECT_EQ(book.availableToMatch(Side::SELL, 100.0), 0);
 }
+
+TEST(OrderBookTest, AvailableToMatchStopsAtFirstSelfOrderForGivenParticipant)
+{
+    OrderBook book;
+    book.addOrder(Order(1, 99.0, 5, Side::SELL, OrderType::LIMIT, 1));  // self
+    book.addOrder(Order(2, 100.0, 5, Side::SELL, OrderType::LIMIT, 2)); // not self
+
+    // Best price (99) belongs to participant 1, same as the querying
+    // participant, so nothing beyond it counts as reachable liquidity —
+    // even though participant 2's order at 100 would otherwise cross.
+    EXPECT_EQ(book.availableToMatch(Side::BUY, 100.0, 1), 0);
+}
+
+TEST(OrderBookTest, AvailableToMatchCountsUpToButExcludingSelfOrder)
+{
+    OrderBook book;
+    book.addOrder(Order(1, 99.0, 5, Side::SELL, OrderType::LIMIT, 2));  // not self
+    book.addOrder(Order(2, 100.0, 5, Side::SELL, OrderType::LIMIT, 1)); // self
+
+    EXPECT_EQ(book.availableToMatch(Side::BUY, 100.0, 1), 5);
+}
+
+TEST(OrderBookTest, AvailableToMatchIgnoresParticipantWhenQueryingWithZero)
+{
+    OrderBook book;
+    book.addOrder(Order(1, 99.0, 5, Side::SELL, OrderType::LIMIT, 1));
+    book.addOrder(Order(2, 100.0, 5, Side::SELL, OrderType::LIMIT, 2));
+
+    EXPECT_EQ(book.availableToMatch(Side::BUY, 100.0), 10);
+}
+
+TEST(OrderBookTest, GetRemainingQuantityReturnsFalseForUnknownId)
+{
+    OrderBook book;
+    int qty = -1;
+
+    EXPECT_FALSE(book.getRemainingQuantity(42, qty));
+}
+
+TEST(OrderBookTest, GetRemainingQuantityReturnsCurrentQuantity)
+{
+    OrderBook book;
+    book.addOrder(Order(1, 100.0, 10, Side::BUY));
+
+    int qty = -1;
+    EXPECT_TRUE(book.getRemainingQuantity(1, qty));
+    EXPECT_EQ(qty, 10);
+}
+
+TEST(OrderBookTest, GetRemainingQuantityReturnsFalseAfterCancellation)
+{
+    OrderBook book;
+    book.addOrder(Order(1, 100.0, 10, Side::BUY));
+    book.cancelOrder(1);
+
+    int qty = -1;
+    EXPECT_FALSE(book.getRemainingQuantity(1, qty));
+}
