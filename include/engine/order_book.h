@@ -4,8 +4,10 @@
 #include <deque>
 #include <unordered_map>
 #include <functional>
+#include <cstddef>
 
 #include "core/order.h"
+#include "core/book_snapshot.h"
 
 class OrderBook
 {
@@ -55,4 +57,10 @@ public:
     bool getRemainingQuantity(
         int order_id,
         int &out_quantity);
+
+    // Aggregated top-N view of both sides. A depth of 0 yields an empty
+    // snapshot; a depth beyond the number of populated levels yields
+    // every level that exists, without padding.
+    BookSnapshot snapshot(
+        std::size_t depth);
 };

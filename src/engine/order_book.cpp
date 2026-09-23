@@ -1,6 +1,40 @@
 #include "engine/order_book.h"
 
+#include <algorithm>
 #include <stdexcept>
+
+namespace
+{
+    // bids and asks are maps with different comparators, so this is a
+    // template rather than two near-identical loops.
+    template <typename LevelMap>
+    void collectLevels(
+        const LevelMap &levels,
+        std::size_t depth,
+        std::vector<PriceLevel> &out)
+    {
+        out.reserve(std::min(depth, levels.size()));
+
+        for (const auto &level : levels)
+        {
+            if (out.size() >= depth)
+                break;
+
+            PriceLevel aggregated;
+            aggregated.price = level.first;
+            aggregated.total_quantity = 0;
+            aggregated.order_count = 0;
+
+            for (const auto &order : level.second)
+            {
+                aggregated.total_quantity += order.quantity;
+                ++aggregated.order_count;
+            }
+
+            out.push_back(aggregated);
+        }
+    }
+}
 
 void OrderBook::addOrder(const Order &order)
 {
@@ -218,4 +252,15 @@ bool OrderBook::getRemainingQuantity(
     out_quantity = it->second->quantity;
 
     return true;
+}
+
+BookSnapshot OrderBook::snapshot(
+    std::size_t depth)
+{
+    BookSnapshot result;
+
+    collectLevels(bids, depth, result.bids);
+    collectLevels(asks, depth, result.asks);
+
+    return result;
 }

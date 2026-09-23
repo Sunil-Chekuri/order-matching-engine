@@ -188,6 +188,12 @@ bool MatchingEngine::getRemainingQuantity(
     return book.getRemainingQuantity(order_id, out_quantity);
 }
 
+BookSnapshot MatchingEngine::snapshot(
+    std::size_t depth)
+{
+    return book.snapshot(depth);
+}
+
 bool MatchingEngine::cancelOrder(
     int order_id)
 {

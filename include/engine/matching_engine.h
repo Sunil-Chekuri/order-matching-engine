@@ -27,6 +27,9 @@ public:
         int order_id,
         int &out_quantity);
 
+    BookSnapshot snapshot(
+        std::size_t depth);
+
     int getTotalTrades() const
     {
         return total_trades;
