@@ -13,4 +13,6 @@ public:
     void start();
 
     long long stop();
+
+    long long stopNanos();
 };

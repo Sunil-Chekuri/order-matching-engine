@@ -11,6 +11,17 @@ std::ofstream Logger::log_file;
 
 std::mutex Logger::log_mutex;
 
+bool Logger::enabled = true;
+
+void Logger::setEnabled(
+    bool value)
+{
+    std::lock_guard<std::mutex>
+        lock(log_mutex);
+
+    enabled = value;
+}
+
 void Logger::init()
 {
     log_file.open(
@@ -82,6 +93,9 @@ void Logger::log(
 {
     std::lock_guard<std::mutex>
         lock(log_mutex);
+
+    if (!enabled)
+        return;
 
     std::string line =
         currentTime() +

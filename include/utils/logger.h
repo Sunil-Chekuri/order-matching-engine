@@ -19,6 +19,8 @@ private:
 
     static std::mutex log_mutex;
 
+    static bool enabled;
+
     static std::string currentTime();
 
     static std::string levelToString(
@@ -26,6 +28,9 @@ private:
 
 public:
     static void init();
+
+    static void setEnabled(
+        bool value);
 
     static void log(
         LogLevel level,
