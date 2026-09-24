@@ -9,6 +9,16 @@
 #include "core/order.h"
 #include "core/book_snapshot.h"
 
+// NOT internally synchronised, deliberately. Callers must serialise
+// access themselves — MatchingEngine does, holding one lock across each
+// whole operation.
+//
+// A per-method mutex in here would be worse than useless: bestBid() and
+// bestAsk() hand out references into the internal deques, and the
+// matching loop reads, mutates and then removes through those references
+// across several separate calls. Locking inside each method would
+// release the lock while a caller still holds a live reference, leaving
+// every useful sequence racy while looking safe.
 class OrderBook
 {
 private:

@@ -6,6 +6,15 @@
 void MatchingEngine::processOrder(
     const Order &order)
 {
+    std::lock_guard<std::mutex>
+        lock(engine_mutex);
+
+    processOrderLocked(order);
+}
+
+void MatchingEngine::processOrderLocked(
+    const Order &order)
+{
     switch (order.type)
     {
         case OrderType::MARKET:
@@ -185,18 +194,43 @@ bool MatchingEngine::getRemainingQuantity(
     int order_id,
     int &out_quantity)
 {
+    std::lock_guard<std::mutex>
+        lock(engine_mutex);
+
     return book.getRemainingQuantity(order_id, out_quantity);
 }
 
 BookSnapshot MatchingEngine::snapshot(
     std::size_t depth)
 {
+    std::lock_guard<std::mutex>
+        lock(engine_mutex);
+
     return book.snapshot(depth);
+}
+
+int MatchingEngine::getTotalTrades() const
+{
+    std::lock_guard<std::mutex>
+        lock(engine_mutex);
+
+    return total_trades;
+}
+
+int MatchingEngine::getTradeCounter() const
+{
+    std::lock_guard<std::mutex>
+        lock(engine_mutex);
+
+    return trade_counter;
 }
 
 bool MatchingEngine::cancelOrder(
     int order_id)
 {
+    std::lock_guard<std::mutex>
+        lock(engine_mutex);
+
     bool success =
         book.cancelOrder(order_id);
 

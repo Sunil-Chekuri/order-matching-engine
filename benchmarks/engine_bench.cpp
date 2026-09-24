@@ -1,5 +1,6 @@
 #include <benchmark/benchmark.h>
 
+#include <atomic>
 #include <cstddef>
 
 #include "core/order.h"
@@ -136,6 +137,27 @@ static void BM_SnapshotCrowdedLevel(benchmark::State &state)
     }
 }
 BENCHMARK(BM_SnapshotCrowdedLevel)->Arg(1)->Arg(100)->Arg(10000);
+
+// One engine shared across N threads, all contending for its single
+// mutex. Matching pairs keep the book near-empty so the measurement
+// reflects lock contention rather than a book that grows without bound.
+static void BM_ConcurrentMatchingPair(benchmark::State &state)
+{
+    static MatchingEngine engine;
+    static std::atomic<int> next_order_id{1};
+
+    for (auto _ : state)
+    {
+        engine.processOrder(
+            Order(next_order_id.fetch_add(1), 100.0, 10, Side::BUY));
+
+        engine.processOrder(
+            Order(next_order_id.fetch_add(1), 100.0, 10, Side::SELL));
+    }
+
+    state.SetItemsProcessed(state.iterations() * 2);
+}
+BENCHMARK(BM_ConcurrentMatchingPair)->Threads(1)->Threads(2)->Threads(4);
 
 int main(int argc, char **argv)
 {
