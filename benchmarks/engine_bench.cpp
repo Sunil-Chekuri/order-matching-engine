@@ -1,6 +1,8 @@
 #include <benchmark/benchmark.h>
 
 #include <atomic>
+#include <cstdio>
+#include <cstdlib>
 #include <cstddef>
 #include <string>
 
@@ -185,6 +187,57 @@ static void BM_ConcurrentMultiSymbol(benchmark::State &state)
     state.SetItemsProcessed(state.iterations() * 2);
 }
 BENCHMARK(BM_ConcurrentMultiSymbol)->Threads(1)->Threads(2)->Threads(4);
+
+// Written outside the repository: this project lives in a OneDrive
+// synced folder, and logging into it measures the sync client as much
+// as the engine.
+static const char *walPath()
+{
+    static std::string path = []() {
+        const char *tmp = std::getenv("TEMP");
+        return std::string(tmp ? tmp : ".") + "/ome_bench_wal.log";
+    }();
+    return path.c_str();
+}
+
+// The write-ahead log appends synchronously, inside the shard lock,
+// before each order is applied. These two run identical workloads with
+// the log off and on, so the difference is the cost of durability.
+static void BM_MatchingPairNoWal(benchmark::State &state)
+{
+    MatchingEngine engine;
+
+    int id = 0;
+
+    for (auto _ : state)
+    {
+        engine.processOrder(Order(++id, 100.0, 10, Side::BUY));
+        engine.processOrder(Order(++id, 100.0, 10, Side::SELL));
+    }
+
+    state.SetItemsProcessed(state.iterations() * 2);
+}
+BENCHMARK(BM_MatchingPairNoWal)->Iterations(20000);
+
+static void BM_MatchingPairWithWal(benchmark::State &state)
+{
+    MatchingEngine engine;
+    engine.enableWriteAheadLog(walPath());
+
+    int id = 0;
+
+    for (auto _ : state)
+    {
+        engine.processOrder(Order(++id, 100.0, 10, Side::BUY));
+        engine.processOrder(Order(++id, 100.0, 10, Side::SELL));
+    }
+
+    engine.disableWriteAheadLog();
+    std::remove(walPath());
+
+    state.SetItemsProcessed(state.iterations() * 2);
+}
+BENCHMARK(BM_MatchingPairWithWal)->Iterations(20000);
 
 int main(int argc, char **argv)
 {

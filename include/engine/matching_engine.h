@@ -8,6 +8,7 @@
 
 #include "engine/order_book.h"
 #include "core/trade.h"
+#include "persistence/write_ahead_log.h"
 
 class MatchingEngine
 {
@@ -51,6 +52,14 @@ private:
     // to be in this code, not the toolchain). Shipping the version that
     // is provably correct until that is understood.
     mutable std::mutex books_mutex;
+
+    // Optional. When no log is open every append is a no-op, so the
+    // engine behaves exactly as it did before persistence existed.
+    WriteAheadLog wal;
+
+    // Set while replaying a log, to stop replayed commands being written
+    // straight back into the log they came from.
+    bool replaying = false;
 
     SymbolBook &getOrCreateShard(
         const std::string &symbol);
@@ -101,4 +110,17 @@ public:
     int getTotalTrades() const;
 
     std::size_t symbolCount() const;
+
+    // Starts recording commands to disk. Existing log content is kept,
+    // so reopening the same path continues the same history.
+    void enableWriteAheadLog(
+        const std::string &path);
+
+    void disableWriteAheadLog();
+
+    // Rebuilds state by re-applying a log's commands in recorded order.
+    // Intended for a fresh engine at startup; commands applied during
+    // replay are not themselves logged. Returns how many were applied.
+    std::size_t replayFrom(
+        const std::string &path);
 };

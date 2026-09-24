@@ -51,6 +51,15 @@ void MatchingEngine::processOrder(
     std::lock_guard<std::mutex>
         lock(shard.mutex);
 
+    // Write-ahead: the command reaches the log before it reaches the
+    // book, so a record can exist for a change that was never applied,
+    // but a change can never exist without a record. Replaying a command
+    // that was already applied is harmless; the reverse would lose it.
+    // Done under the shard lock, which is what makes the log order match
+    // application order for that symbol.
+    if (!replaying)
+        wal.appendSubmit(order);
+
     processOrderLocked(shard, order);
 }
 
@@ -279,6 +288,66 @@ int MatchingEngine::getTotalTrades() const
     return total;
 }
 
+void MatchingEngine::enableWriteAheadLog(
+    const std::string &path)
+{
+    wal.open(path);
+}
+
+void MatchingEngine::disableWriteAheadLog()
+{
+    wal.close();
+}
+
+std::size_t MatchingEngine::replayFrom(
+    const std::string &path)
+{
+    std::vector<WalRecord> records =
+        WriteAheadLog::readAll(path);
+
+    // Not safe to call concurrently with trading: this is a startup
+    // operation on a fresh engine, and the flag it sets is plain.
+    replaying = true;
+
+    std::size_t applied = 0;
+
+    for (const WalRecord &record : records)
+    {
+        try
+        {
+            if (record.kind == WalRecord::Kind::SUBMIT)
+            {
+                processOrder(
+                    Order(
+                        record.order_id,
+                        record.price,
+                        record.quantity,
+                        record.side,
+                        record.type,
+                        record.participant_id,
+                        record.symbol));
+            }
+            else
+            {
+                cancelOrder(record.order_id, record.symbol);
+            }
+
+            ++applied;
+        }
+        catch (const std::exception &)
+        {
+            // A record that parsed but describes an impossible order
+            // (zero quantity, say) is skipped rather than aborting the
+            // whole recovery.
+            continue;
+        }
+    }
+
+    replaying = false;
+
+    return applied;
+}
+
 std::size_t MatchingEngine::symbolCount() const
 {
     std::lock_guard<std::mutex>
@@ -299,6 +368,11 @@ bool MatchingEngine::cancelOrder(
     {
         std::lock_guard<std::mutex>
             lock(shard->mutex);
+
+        // Logged before the outcome is known, on purpose: the log records
+        // intent, and replaying a cancel that failed simply fails again.
+        if (!replaying)
+            wal.appendCancel(order_id, symbol);
 
         success = shard->book.cancelOrder(order_id);
     }

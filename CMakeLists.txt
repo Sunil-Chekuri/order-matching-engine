@@ -19,6 +19,7 @@ file(GLOB_RECURSE LIB_SOURCES
     src/engine/*.cpp
     src/api/*.cpp
     src/utils/*.cpp
+    src/persistence/*.cpp
 )
 
 add_library(engine_lib ${LIB_SOURCES})
