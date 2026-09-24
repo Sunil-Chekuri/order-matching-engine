@@ -3,16 +3,59 @@
 
 #include <algorithm>
 
+MatchingEngine::SymbolBook &MatchingEngine::getOrCreateShard(
+    const std::string &symbol)
+{
+    {
+        std::lock_guard<std::mutex>
+            read_lock(books_mutex);
+
+        auto it = books.find(symbol);
+
+        if (it != books.end())
+            return *it->second;
+    }
+
+    std::lock_guard<std::mutex>
+        write_lock(books_mutex);
+
+    // Another thread may have created this symbol between the lookup
+    // above releasing the lock and this one acquiring it.
+    auto &slot = books[symbol];
+
+    if (!slot)
+        slot = std::make_unique<SymbolBook>();
+
+    return *slot;
+}
+
+MatchingEngine::SymbolBook *MatchingEngine::findShard(
+    const std::string &symbol)
+{
+    std::lock_guard<std::mutex>
+        read_lock(books_mutex);
+
+    auto it = books.find(symbol);
+
+    if (it == books.end())
+        return nullptr;
+
+    return it->second.get();
+}
+
 void MatchingEngine::processOrder(
     const Order &order)
 {
-    std::lock_guard<std::mutex>
-        lock(engine_mutex);
+    SymbolBook &shard = getOrCreateShard(order.symbol);
 
-    processOrderLocked(order);
+    std::lock_guard<std::mutex>
+        lock(shard.mutex);
+
+    processOrderLocked(shard, order);
 }
 
 void MatchingEngine::processOrderLocked(
+    SymbolBook &shard,
     const Order &order)
 {
     switch (order.type)
@@ -20,13 +63,13 @@ void MatchingEngine::processOrderLocked(
         case OrderType::MARKET:
             // No price limit: sweep whatever liquidity exists. Any
             // unfilled remainder is discarded, never rests in the book.
-            matchAggressively(order, false);
+            matchAggressively(shard, order, false);
             return;
 
         case OrderType::IOC:
             // Same sweep, but only against prices that cross the
             // order's own limit price. Unfilled remainder is discarded.
-            matchAggressively(order, true);
+            matchAggressively(shard, order, true);
             return;
 
         case OrderType::FOK:
@@ -35,13 +78,13 @@ void MatchingEngine::processOrderLocked(
             // filled immediately: otherwise the order is killed with no
             // trades and no partial fills at all.
             int available =
-                book.availableToMatch(
+                shard.book.availableToMatch(
                     order.side,
                     order.price,
                     order.participant_id);
 
             if (available >= order.quantity)
-                matchAggressively(order, true);
+                matchAggressively(shard, order, true);
 
             return;
         }
@@ -51,15 +94,15 @@ void MatchingEngine::processOrderLocked(
             break;
     }
 
-    book.addOrder(order);
+    shard.book.addOrder(order);
 
-    while (book.hasMatch())
+    while (shard.book.hasMatch())
     {
         Order &buy =
-            book.bestBid();
+            shard.book.bestBid();
 
         Order &sell =
-            book.bestAsk();
+            shard.book.bestAsk();
 
         // Self-trade prevention: stop matching entirely rather than let
         // the same participant's buy and sell trade against each other.
@@ -76,24 +119,22 @@ void MatchingEngine::processOrderLocked(
                 buy.quantity,
                 sell.quantity);
 
-        trade_counter++;
+        shard.total_trades++;
 
         Trade trade(
-            trade_counter,
+            shard.total_trades,
             buy.order_id,
             sell.order_id,
             sell.price,
             qty);
 
-        total_trades++;
-
         // Log periodically (avoid spam)
 
-        if (total_trades % 1000 == 0)
+        if (shard.total_trades % 1000 == 0)
         {
             Logger::log(
                 LogLevel::INFO,
-                "Trades executed: " + std::to_string(total_trades));
+                "Trades executed: " + std::to_string(shard.total_trades));
         }
 
         buy.quantity -= qty;
@@ -101,17 +142,18 @@ void MatchingEngine::processOrderLocked(
 
         if (buy.quantity == 0)
         {
-            book.removeBestBid();
+            shard.book.removeBestBid();
         }
 
         if (sell.quantity == 0)
         {
-            book.removeBestAsk();
+            shard.book.removeBestAsk();
         }
     }
 }
 
 void MatchingEngine::matchAggressively(
+    SymbolBook &shard,
     Order incoming,
     bool respect_price)
 {
@@ -119,16 +161,16 @@ void MatchingEngine::matchAggressively(
     {
         bool oppositeAvailable =
             (incoming.side == Side::BUY)
-                ? book.hasAsks()
-                : book.hasBids();
+                ? shard.book.hasAsks()
+                : shard.book.hasBids();
 
         if (!oppositeAvailable)
             break;
 
         Order &resting =
             (incoming.side == Side::BUY)
-                ? book.bestAsk()
-                : book.bestBid();
+                ? shard.book.bestAsk()
+                : shard.book.bestBid();
 
         if (incoming.participant_id != 0 && incoming.participant_id == resting.participant_id)
             break;
@@ -149,7 +191,7 @@ void MatchingEngine::matchAggressively(
                 incoming.quantity,
                 resting.quantity);
 
-        trade_counter++;
+        shard.total_trades++;
 
         int buy_id =
             (incoming.side == Side::BUY)
@@ -162,19 +204,17 @@ void MatchingEngine::matchAggressively(
                 : incoming.order_id;
 
         Trade trade(
-            trade_counter,
+            shard.total_trades,
             buy_id,
             sell_id,
             resting.price,
             qty);
 
-        total_trades++;
-
-        if (total_trades % 1000 == 0)
+        if (shard.total_trades % 1000 == 0)
         {
             Logger::log(
                 LogLevel::INFO,
-                "Trades executed: " + std::to_string(total_trades));
+                "Trades executed: " + std::to_string(shard.total_trades));
         }
 
         incoming.quantity -= qty;
@@ -183,56 +223,85 @@ void MatchingEngine::matchAggressively(
         if (resting.quantity == 0)
         {
             if (incoming.side == Side::BUY)
-                book.removeBestAsk();
+                shard.book.removeBestAsk();
             else
-                book.removeBestBid();
+                shard.book.removeBestBid();
         }
     }
 }
 
 bool MatchingEngine::getRemainingQuantity(
     int order_id,
-    int &out_quantity)
+    int &out_quantity,
+    const std::string &symbol)
 {
-    std::lock_guard<std::mutex>
-        lock(engine_mutex);
+    SymbolBook *shard = findShard(symbol);
 
-    return book.getRemainingQuantity(order_id, out_quantity);
+    if (shard == nullptr)
+        return false;
+
+    std::lock_guard<std::mutex>
+        lock(shard->mutex);
+
+    return shard->book.getRemainingQuantity(order_id, out_quantity);
 }
 
 BookSnapshot MatchingEngine::snapshot(
-    std::size_t depth)
+    std::size_t depth,
+    const std::string &symbol)
 {
-    std::lock_guard<std::mutex>
-        lock(engine_mutex);
+    SymbolBook *shard = findShard(symbol);
 
-    return book.snapshot(depth);
+    if (shard == nullptr)
+        return BookSnapshot();
+
+    std::lock_guard<std::mutex>
+        lock(shard->mutex);
+
+    return shard->book.snapshot(depth);
 }
 
 int MatchingEngine::getTotalTrades() const
 {
     std::lock_guard<std::mutex>
-        lock(engine_mutex);
+        map_lock(books_mutex);
 
-    return total_trades;
+    int total = 0;
+
+    for (const auto &entry : books)
+    {
+        std::lock_guard<std::mutex>
+            shard_lock(entry.second->mutex);
+
+        total += entry.second->total_trades;
+    }
+
+    return total;
 }
 
-int MatchingEngine::getTradeCounter() const
+std::size_t MatchingEngine::symbolCount() const
 {
     std::lock_guard<std::mutex>
-        lock(engine_mutex);
+        map_lock(books_mutex);
 
-    return trade_counter;
+    return books.size();
 }
 
 bool MatchingEngine::cancelOrder(
-    int order_id)
+    int order_id,
+    const std::string &symbol)
 {
-    std::lock_guard<std::mutex>
-        lock(engine_mutex);
+    SymbolBook *shard = findShard(symbol);
 
-    bool success =
-        book.cancelOrder(order_id);
+    bool success = false;
+
+    if (shard != nullptr)
+    {
+        std::lock_guard<std::mutex>
+            lock(shard->mutex);
+
+        success = shard->book.cancelOrder(order_id);
+    }
 
     if (success)
     {

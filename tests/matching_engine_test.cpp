@@ -125,15 +125,18 @@ TEST(MatchingEngineTest, CancelAfterFullFillDoesNotCrashOrSucceed)
     EXPECT_FALSE(engine.cancelOrder(2));
 }
 
-TEST(MatchingEngineTest, TradeCounterAndTotalTradesStayInSync)
+TEST(MatchingEngineTest, TradeCountAccumulatesAcrossOrders)
 {
+    // Day 11 collapsed the old trade_counter/total_trades pair into a
+    // single per-symbol counter: they had always held identical values,
+    // and carrying the duplication into every shard would have made it
+    // worse rather than merely redundant.
     MatchingEngine engine;
     engine.processOrder(Order(1, 100.0, 10, Side::BUY));
     engine.processOrder(Order(2, 100.0, 10, Side::SELL));
     engine.processOrder(Order(3, 101.0, 5, Side::BUY));
     engine.processOrder(Order(4, 101.0, 5, Side::SELL));
 
-    EXPECT_EQ(engine.getTradeCounter(), engine.getTotalTrades());
     EXPECT_EQ(engine.getTotalTrades(), 2);
 }
 

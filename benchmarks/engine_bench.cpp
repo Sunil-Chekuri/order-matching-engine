@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstddef>
+#include <string>
 
 #include "core/order.h"
 #include "engine/matching_engine.h"
@@ -158,6 +159,32 @@ static void BM_ConcurrentMatchingPair(benchmark::State &state)
     state.SetItemsProcessed(state.iterations() * 2);
 }
 BENCHMARK(BM_ConcurrentMatchingPair)->Threads(1)->Threads(2)->Threads(4);
+
+// The same contention test, except each thread trades its own symbol and
+// therefore its own shard. Compared against BM_ConcurrentMatchingPair
+// above, this isolates what sharding actually bought.
+static void BM_ConcurrentMultiSymbol(benchmark::State &state)
+{
+    static MatchingEngine engine;
+    static std::atomic<int> next_order_id{1};
+
+    const std::string symbol =
+        "SYM" + std::to_string(state.thread_index());
+
+    for (auto _ : state)
+    {
+        engine.processOrder(
+            Order(next_order_id.fetch_add(1), 100.0, 10, Side::BUY,
+                  OrderType::LIMIT, 0, symbol));
+
+        engine.processOrder(
+            Order(next_order_id.fetch_add(1), 100.0, 10, Side::SELL,
+                  OrderType::LIMIT, 0, symbol));
+    }
+
+    state.SetItemsProcessed(state.iterations() * 2);
+}
+BENCHMARK(BM_ConcurrentMultiSymbol)->Threads(1)->Threads(2)->Threads(4);
 
 int main(int argc, char **argv)
 {

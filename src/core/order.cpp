@@ -8,13 +8,15 @@ Order::Order(
     int qty,
     Side s,
     OrderType t,
-    int participant_id)
+    int participant_id,
+    const std::string &symbol)
     : order_id(id),
       price(p),
       quantity(qty),
       side(s),
       type(t),
       participant_id(participant_id),
+      symbol(symbol),
       timestamp(
           std::chrono::high_resolution_clock::now())
 {

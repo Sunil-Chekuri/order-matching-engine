@@ -62,26 +62,35 @@ TEST(ConcurrencyTest, SnapshotsTakenDuringWritesAreInternallyConsistent)
     // of order.
     MatchingEngine engine;
 
-    std::atomic<bool> writing{true};
+    const int required_snapshots = 200;
+
+    std::atomic<bool> reader_finished{false};
     std::atomic<int> snapshots_taken{0};
     std::atomic<bool> malformed{false};
 
+    // The writer runs until the reader has taken its quota rather than
+    // for a fixed number of orders, so the two are guaranteed to overlap.
+    // Gating the reader on "is the writer still going" instead made this
+    // test flaky: under load the writer could finish before the reader
+    // was ever scheduled, and the reader would take zero snapshots.
     std::thread writer(
-        [&engine, &writing]()
+        [&engine, &reader_finished]()
         {
-            for (int i = 0; i < 4000; ++i)
-            {
-                engine.processOrder(
-                    Order(i + 1, 100.0 + (i % 20), 10, Side::BUY));
-            }
+            int i = 0;
 
-            writing = false;
+            while (!reader_finished)
+            {
+                ++i;
+
+                engine.processOrder(
+                    Order(i, 100.0 + (i % 20), 10, Side::BUY));
+            }
         });
 
     std::thread reader(
-        [&engine, &writing, &snapshots_taken, &malformed]()
+        [&engine, &reader_finished, &snapshots_taken, &malformed, required_snapshots]()
         {
-            while (writing)
+            for (int n = 0; n < required_snapshots; ++n)
             {
                 BookSnapshot snapshot = engine.snapshot(10);
 
@@ -100,13 +109,15 @@ TEST(ConcurrencyTest, SnapshotsTakenDuringWritesAreInternallyConsistent)
 
                 ++snapshots_taken;
             }
+
+            reader_finished = true;
         });
 
-    writer.join();
     reader.join();
+    writer.join();
 
     EXPECT_FALSE(malformed);
-    EXPECT_GT(snapshots_taken.load(), 0);
+    EXPECT_EQ(snapshots_taken.load(), required_snapshots);
 }
 
 TEST(ConcurrencyTest, ConcurrentCancelsNeverDoubleCancelTheSameOrder)
