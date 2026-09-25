@@ -1,9 +1,23 @@
 #include "api/order_gateway.h"
+#include "net/tcp_server.h"
 #include "utils/timer.h"
 #include "utils/logger.h"
 #include "utils/latency_stats.h"
 
+#include <atomic>
+#include <chrono>
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <iostream>
 #include <string>
+#include <thread>
+
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace
 {
@@ -55,9 +69,9 @@ namespace
     // the cost of two clock reads per order, so they read slightly high
     // compared to the throughput pass above.
     //
-    // Day 8 ran this twice, with logging live and suppressed, to isolate
+    //  ran this twice, with logging live and suppressed, to isolate
     // how much of the tail belonged to the synchronous log write inside
-    // the matching loop. Day 13 removed that write entirely — the two
+    // the matching loop.next removed that write entirely — the two
     // passes became statistically indistinguishable — so there is only
     // one pass again.
     void runLatencyPass(
@@ -118,9 +132,94 @@ namespace
             LogLevel::INFO,
             "metrics " + toJsonLine(gateway.metrics()));
     }
+
+    std::atomic<bool> stop_requested{false};
+
+    void handleInterrupt(int)
+    {
+        // A signal handler may touch almost nothing safely. Setting one
+        // atomic flag and letting the main thread do the real shutdown
+        // is the standard shape, and keeps server.stop() — which joins
+        // threads — out of the handler entirely.
+        stop_requested = true;
+    }
+
+    bool stdinIsInteractive()
+    {
+#ifdef _WIN32
+        return _isatty(_fileno(stdin)) != 0;
+#else
+        return isatty(fileno(stdin)) != 0;
+#endif
+    }
+
+    //  The engine stays in-process and
+    // single-owner; the server is just another caller of OrderGateway,
+    // which is the point of having kept the gateway as the one entry
+    // point all along.
+    void runServer(
+        unsigned short port)
+    {
+        OrderGateway gateway;
+
+        TcpServer server(gateway);
+
+        if (!server.start(port))
+        {
+            Logger::log(
+                LogLevel::ERROR,
+                "Could not bind port " + std::to_string(port));
+
+            return;
+        }
+
+        std::cout
+            << "Listening on 127.0.0.1:" << server.port() << '\n'
+            << "Try: PING | SUBMIT 1 BUY LIMIT 100.0 10 | SNAPSHOT 5 | METRICS" << '\n'
+            << (stdinIsInteractive()
+                    ? "Press Enter or Ctrl-C to stop."
+                    : "Send Ctrl-C to stop.")
+            << std::endl;
+
+        // How to wait for shutdown depends on how the process was
+        // started, and getting this wrong makes the server undeployable
+        // rather than merely awkward: simply blocking on stdin means a
+        // process launched in the background, from a script, or with its
+        // input redirected reads EOF immediately and exits on the spot.
+        //
+        // So Ctrl-C is always a way out, and Enter is offered as well
+        // only when there is a terminal on the other end to press it.
+        std::signal(SIGINT, handleInterrupt);
+
+        if (stdinIsInteractive())
+        {
+            // Detached because a thread parked in getline cannot be
+            // joined once SIGINT has already ended the wait. The
+            // process is on its way out either way.
+            std::thread(
+                []()
+                {
+                    std::string ignored;
+                    std::getline(std::cin, ignored);
+                    stop_requested = true;
+                })
+                .detach();
+        }
+
+        while (!stop_requested)
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+        server.stop();
+
+        Logger::log(
+            LogLevel::INFO,
+            "metrics " + toJsonLine(gateway.metrics()));
+    }
 }
 
-int main()
+int main(
+    int argc,
+    char **argv)
 {
     Logger::init();
 
@@ -128,9 +227,26 @@ int main()
         LogLevel::INFO,
         "Engine started");
 
-    runThroughputPass();
+    // No arguments keeps the historical behaviour — the benchmark every
+    // earlier day measured — so nothing that depended on running
+    // engine.exe bare has changed.
+    const std::string mode = (argc > 1) ? argv[1] : "";
 
-    runLatencyPass("Latency");
+    if (mode == "--serve")
+    {
+        const unsigned short port =
+            (argc > 2)
+                ? static_cast<unsigned short>(std::atoi(argv[2]))
+                : 9001;
+
+        runServer(port);
+    }
+    else
+    {
+        runThroughputPass();
+
+        runLatencyPass("Latency");
+    }
 
     Logger::log(
         LogLevel::INFO,
