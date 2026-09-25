@@ -254,6 +254,11 @@ bool OrderBook::getRemainingQuantity(
     return true;
 }
 
+std::size_t OrderBook::restingOrderCount() const
+{
+    return order_registry.size();
+}
+
 BookSnapshot OrderBook::snapshot(
     std::size_t depth)
 {

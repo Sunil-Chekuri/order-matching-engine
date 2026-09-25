@@ -8,6 +8,7 @@
 
 #include "engine/order_book.h"
 #include "core/trade.h"
+#include "core/engine_metrics.h"
 #include "persistence/write_ahead_log.h"
 
 class MatchingEngine
@@ -28,6 +29,15 @@ private:
         // Acceptable while trades are not persisted anywhere; to be
         // revisited when the Day 12 write-ahead log gives them meaning.
         int total_trades = 0;
+
+        // Observability counters. Kept per shard and summed on read,
+        // rather than as shared atomics, for the same reason the books
+        // are sharded: a single counter touched by every order would put
+        // one cache line back in the middle of the hot path. These are
+        // already covered by the shard lock, so they cost an increment.
+        long long orders_submitted = 0;
+        long long cancels_accepted = 0;
+        long long cancels_rejected = 0;
     };
 
     // Held by unique_ptr for two reasons: std::mutex is neither copyable
@@ -110,6 +120,12 @@ public:
     int getTotalTrades() const;
 
     std::size_t symbolCount() const;
+
+    // Aggregated across shards, locking each briefly in turn — the same
+    // eventually-consistent reading getTotalTrades() gives, for the same
+    // reason. Cheap enough to scrape on a timer, and deliberately not
+    // called from anywhere on the matching path.
+    EngineMetrics metrics() const;
 
     // Starts recording commands to disk. Existing log content is kept,
     // so reopening the same path continues the same history.

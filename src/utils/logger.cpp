@@ -13,6 +13,17 @@ std::mutex Logger::log_mutex;
 
 bool Logger::enabled = true;
 
+LogLevel Logger::min_level = LogLevel::INFO;
+
+void Logger::setMinLevel(
+    LogLevel level)
+{
+    std::lock_guard<std::mutex>
+        lock(log_mutex);
+
+    min_level = level;
+}
+
 void Logger::setEnabled(
     bool value)
 {
@@ -95,6 +106,9 @@ void Logger::log(
         lock(log_mutex);
 
     if (!enabled)
+        return;
+
+    if (level < min_level)
         return;
 
     std::string line =

@@ -68,6 +68,10 @@ public:
         int order_id,
         int &out_quantity);
 
+    // Orders currently resting on either side. O(1): the registry
+    // already tracks exactly the live orders.
+    std::size_t restingOrderCount() const;
+
     // Aggregated top-N view of both sides. A depth of 0 yields an empty
     // snapshot; a depth beyond the number of populated levels yields
     // every level that exists, without padding.

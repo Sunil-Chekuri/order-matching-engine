@@ -4,12 +4,15 @@
 #include <fstream>
 #include <mutex>
 
+// Ordered by severity so that filtering is a comparison. DEBUG was
+// originally declared last, which made "at least this severe" impossible
+// to express; nothing persists these values, so reordering is safe.
 enum class LogLevel
 {
+    DEBUG,
     INFO,
     WARNING,
-    ERROR,
-    DEBUG
+    ERROR
 };
 
 class Logger
@@ -21,6 +24,8 @@ private:
 
     static bool enabled;
 
+    static LogLevel min_level;
+
     static std::string currentTime();
 
     static std::string levelToString(
@@ -31,6 +36,11 @@ public:
 
     static void setEnabled(
         bool value);
+
+    // Messages below this severity are discarded before any formatting
+    // or I/O happens. Defaults to INFO, so DEBUG costs a comparison.
+    static void setMinLevel(
+        LogLevel level);
 
     static void log(
         LogLevel level,

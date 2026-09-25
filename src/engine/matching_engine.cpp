@@ -60,6 +60,8 @@ void MatchingEngine::processOrder(
     if (!replaying)
         wal.appendSubmit(order);
 
+    shard.orders_submitted++;
+
     processOrderLocked(shard, order);
 }
 
@@ -137,15 +139,6 @@ void MatchingEngine::processOrderLocked(
             sell.price,
             qty);
 
-        // Log periodically (avoid spam)
-
-        if (shard.total_trades % 1000 == 0)
-        {
-            Logger::log(
-                LogLevel::INFO,
-                "Trades executed: " + std::to_string(shard.total_trades));
-        }
-
         buy.quantity -= qty;
         sell.quantity -= qty;
 
@@ -218,13 +211,6 @@ void MatchingEngine::matchAggressively(
             sell_id,
             resting.price,
             qty);
-
-        if (shard.total_trades % 1000 == 0)
-        {
-            Logger::log(
-                LogLevel::INFO,
-                "Trades executed: " + std::to_string(shard.total_trades));
-        }
 
         incoming.quantity -= qty;
         resting.quantity -= qty;
@@ -375,20 +361,47 @@ bool MatchingEngine::cancelOrder(
             wal.appendCancel(order_id, symbol);
 
         success = shard->book.cancelOrder(order_id);
+
+        if (success)
+            shard->cancels_accepted++;
+        else
+            shard->cancels_rejected++;
     }
 
-    if (success)
-    {
-        Logger::log(
-            LogLevel::INFO,
-            "Order cancelled: " + std::to_string(order_id));
-    }
-    else
-    {
-        Logger::log(
-            LogLevel::WARNING,
-            "Cancel failed for order: " + std::to_string(order_id));
-    }
+    // Per-cancel logging is DEBUG and therefore off by default. It used
+    // to be INFO, meaning every cancel did a formatted write and a flush
+    // — on a path that Day 12 measured at roughly 22 microseconds per
+    // flush. How many cancels succeeded or failed is a counter's job,
+    // and the counters above now answer it for free.
+    Logger::log(
+        LogLevel::DEBUG,
+        success
+            ? "Order cancelled: " + std::to_string(order_id)
+            : "Cancel failed for order: " + std::to_string(order_id));
 
     return success;
+}
+
+EngineMetrics MatchingEngine::metrics() const
+{
+    std::lock_guard<std::mutex>
+        map_lock(books_mutex);
+
+    EngineMetrics totals;
+    totals.symbols = books.size();
+
+    for (const auto &entry : books)
+    {
+        std::lock_guard<std::mutex>
+            shard_lock(entry.second->mutex);
+
+        totals.orders_submitted += entry.second->orders_submitted;
+        totals.trades_executed += entry.second->total_trades;
+        totals.cancels_accepted += entry.second->cancels_accepted;
+        totals.cancels_rejected += entry.second->cancels_rejected;
+        totals.resting_orders +=
+            static_cast<long long>(entry.second->book.restingOrderCount());
+    }
+
+    return totals;
 }

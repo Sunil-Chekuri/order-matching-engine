@@ -12,3 +12,8 @@ bool OrderGateway::cancelOrder(
     return engine.cancelOrder(
         order_id);
 }
+
+EngineMetrics OrderGateway::metrics() const
+{
+    return engine.metrics();
+}

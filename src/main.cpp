@@ -55,12 +55,12 @@ namespace
     // the cost of two clock reads per order, so they read slightly high
     // compared to the throughput pass above.
     //
-    // Running this once with logging live and once with it suppressed
-    // isolates how much of the tail belongs to the engine and how much
-    // belongs to the synchronous, flushing log write that fires every
-    // thousandth trade from inside the matching loop.
+    // Day 8 ran this twice, with logging live and suppressed, to isolate
+    // how much of the tail belonged to the synchronous log write inside
+    // the matching loop. Day 13 removed that write entirely — the two
+    // passes became statistically indistinguishable — so there is only
+    // one pass again.
     void runLatencyPass(
-        bool log_during_run,
         const std::string &label)
     {
         OrderGateway gateway;
@@ -69,9 +69,6 @@ namespace
         stats.reserve(NUM_PAIRS * 2);
 
         Timer timer;
-
-        if (!log_during_run)
-            Logger::setEnabled(false);
 
         for (int i = 0; i < NUM_PAIRS; ++i)
         {
@@ -85,8 +82,6 @@ namespace
                 Order(i + NUM_PAIRS, 100.0, 10, Side::SELL));
             stats.record(timer.stopNanos());
         }
-
-        Logger::setEnabled(true);
 
         Logger::log(
             LogLevel::INFO,
@@ -115,6 +110,13 @@ namespace
         Logger::log(
             LogLevel::INFO,
             label + " max: " + std::to_string(stats.max()) + " ns");
+
+        // Counters are read once here, off the matching path, and emitted
+        // as one machine-readable line. Nothing in the loop above did any
+        // I/O of its own.
+        Logger::log(
+            LogLevel::INFO,
+            "metrics " + toJsonLine(gateway.metrics()));
     }
 }
 
@@ -128,9 +130,7 @@ int main()
 
     runThroughputPass();
 
-    runLatencyPass(true, "Latency [logging on]");
-
-    runLatencyPass(false, "Latency [logging off]");
+    runLatencyPass("Latency");
 
     Logger::log(
         LogLevel::INFO,
