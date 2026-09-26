@@ -227,9 +227,16 @@ namespace
                                   OrderType::LIMIT, 0, "README"));
 
                     while (reads.load() < read_quota)
+                    {
+                        // Hoisted: id++ and (id % 25) in one expression
+                        // was an unsequenced read and write of id.
+                        const int next_id = id++;
+
                         engine.processOrder(
-                            Order(id++, 100.0 + (id % 25), 10, Side::BUY,
-                                  OrderType::LIMIT, 0, "README"));
+                            Order(next_id, 100.0 + (next_id % 25), 10,
+                                  Side::BUY, OrderType::LIMIT, 0,
+                                  "README"));
+                    }
                 });
         }
 

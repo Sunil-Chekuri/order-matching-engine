@@ -15,3 +15,4 @@ FetchContent_MakeAvailable(googlebenchmark)
 
 add_executable(engine_bench engine_bench.cpp)
 target_link_libraries(engine_bench PRIVATE engine_lib benchmark::benchmark)
+engine_set_warnings(engine_bench)

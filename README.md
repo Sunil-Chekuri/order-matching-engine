@@ -1,5 +1,7 @@
 # Order Matching Engine (C++)
 
+[![CI](https://github.com/Sunil-Chekuri/order-matching-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Sunil-Chekuri/order-matching-engine/actions/workflows/ci.yml)
+
 A high-performance, modular **Order Matching Engine** implemented in modern C++ using a production-style architecture.
 This project simulates the core components of an exchange matching engine, including order processing, trade execution, latency measurement, and structured logging.
 

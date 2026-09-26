@@ -15,6 +15,7 @@ file(GLOB TEST_SOURCES *.cpp)
 
 add_executable(engine_tests ${TEST_SOURCES})
 target_link_libraries(engine_tests PRIVATE engine_lib gtest_main)
+engine_set_warnings(engine_tests)
 
 include(GoogleTest)
 gtest_discover_tests(engine_tests)

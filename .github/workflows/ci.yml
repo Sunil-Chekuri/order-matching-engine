@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# Cancel superseded runs on the same branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      # A warning that fires only under one compiler is the point of the
+      # matrix, so don't cancel the siblings.
+      fail-fast: false
+
+      matrix:
+        include:
+          - name: Linux GCC
+            os: ubuntu-latest
+            cc: gcc
+            cxx: g++
+          - name: Linux Clang
+            os: ubuntu-latest
+            cc: clang
+            cxx: clang++
+          # The toolchain every benchmark in the docs was measured on.
+          - name: Windows MinGW
+            os: windows-latest
+            cc: gcc
+            cxx: g++
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Set up MSYS2 MinGW (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+
+      # GoogleTest and Benchmark are fetched at configure time, so key the
+      # cache on the files that pin their versions.
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: >-
+            deps-${{ matrix.os }}-${{ matrix.cxx }}-${{
+              hashFiles('tests/CMakeLists.txt', 'benchmarks/CMakeLists.txt') }}
+
+      - name: Configure
+        if: runner.os != 'Windows'
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENGINE_WERROR=ON
+
+      - name: Build
+        if: runner.os != 'Windows'
+        run: cmake --build build
+
+      - name: Test
+        if: runner.os != 'Windows'
+        run: ctest --test-dir build --output-on-failure
+
+      # Fresh processes rather than rounds: the shard-lookup race is a
+      # first-touch race, so rounds inside one warm process aren't
+      # independent trials (see Day 14 in docs/DAILY_LOG.md).
+      - name: Stress (concurrency invariants)
+        if: runner.os != 'Windows'
+        run: |
+          ./build/stress/engine_stress 200 4
+          for i in $(seq 1 40); do
+            ./build/stress/engine_stress 1 4 || exit 1
+          done
+
+      - name: Windows build and test
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENGINE_WERROR=ON
+          cmake --build build
+          ctest --test-dir build --output-on-failure
+          ./build/stress/engine_stress.exe 200 4
