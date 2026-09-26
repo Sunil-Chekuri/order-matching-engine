@@ -21,6 +21,7 @@ file(GLOB_RECURSE LIB_SOURCES
     src/utils/*.cpp
     src/persistence/*.cpp
     src/net/*.cpp
+    src/cli/*.cpp
 )
 
 add_library(engine_lib ${LIB_SOURCES})
@@ -43,3 +44,5 @@ add_subdirectory(tests)
 add_subdirectory(benchmarks)
 
 add_subdirectory(stress)
+
+add_subdirectory(cli)
