@@ -98,3 +98,152 @@ jobs:
           cmake --build build
           ctest --test-dir build --output-on-failure
           ./build/stress/engine_stress.exe 200 4
+
+  sanitizers:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ASan + UBSan
+            sanitize: "address;undefined"
+          - name: TSan
+            sanitize: "thread"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      # A sanitizer build is a different build, so it gets its own cache key.
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: build-san/_deps
+          key: >-
+            san-${{ matrix.sanitize }}-${{
+              hashFiles('tests/CMakeLists.txt', 'benchmarks/CMakeLists.txt') }}
+
+      # RelWithDebInfo, not Release: sanitizers need frame pointers and
+      # symbols to report a line instead of an address.
+      - name: Configure
+        run: >-
+          cmake -S . -B build-san -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DENGINE_SANITIZE="${{ matrix.sanitize }}"
+
+      - name: Build
+        run: cmake --build build-san
+
+      # halt_on_error keeps the run going so one report does not hide the
+      # rest; exitcode=1 still fails the job.
+      - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=0
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=0
+          TSAN_OPTIONS: halt_on_error=0:second_deadlock_stack=1
+        run: ctest --test-dir build-san --output-on-failure
+
+      # The reason this job matters. ThreadSanitizer has been unavailable
+      # since Day 10 (MinGW ships no libtsan), so the concurrency work has
+      # never been checked by a tool built for it. Fresh processes because
+      # the shard-lookup race is a first-touch race.
+      - name: Stress under sanitizer
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=0
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=0
+          TSAN_OPTIONS: halt_on_error=0:second_deadlock_stack=1
+        run: |
+          ./build-san/stress/engine_stress 50 4
+          for i in $(seq 1 20); do
+            ./build-san/stress/engine_stress 1 4 || exit 1
+          done
+
+  clang-tidy:
+    name: clang-tidy (advisory)
+    runs-on: ubuntu-latest
+    # Advisory on first introduction: the finding count has never been
+    # measured, so failing the build on it today would only mean
+    # scrambling. Drop this once a baseline is known.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build clang-tidy
+
+      # Only needs the compile database, so configure without building —
+      # except the fetched headers must exist for tidy to parse includes.
+      - name: Configure
+        run: >-
+          cmake -S . -B build-tidy -G Ninja
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build dependencies only
+        run: cmake --build build-tidy --target gtest_main benchmark || true
+
+      - name: Run clang-tidy on first-party sources
+        run: |
+          files=$(git ls-files 'src/**/*.cpp' 'cli/*.cpp' 'stress/*.cpp')
+          echo "linting: $files"
+          clang-tidy -p build-tidy $files 2>&1 | tee tidy.log
+          echo
+          echo "findings: $(grep -c 'warning:' tidy.log || true)"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: clang-tidy-log
+          path: tidy.log
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build gcovr
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build-cov -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DENGINE_COVERAGE=ON
+
+      - name: Build
+        run: cmake --build build-cov
+
+      - name: Test
+        run: ctest --test-dir build-cov --output-on-failure
+
+      # Only first-party code: GoogleTest's coverage says nothing about
+      # this project. Measured locally at 91.8% line coverage on Day 18.
+      - name: Report
+        run: |
+          gcovr --root . --filter 'src/' --filter 'include/' \
+                --exclude '.*_deps.*' \
+                --print-summary \
+                --xml coverage.xml --html-details coverage.html
+          echo "### Coverage" >> "$GITHUB_STEP_SUMMARY"
+          gcovr --root . --filter 'src/' --filter 'include/' \
+                --exclude '.*_deps.*' 2>/dev/null >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: |
+            coverage.xml
+            coverage.html*
+
+      # Codecov upload is deliberately not wired up: it would send this
+      # repository's data to a third-party service, which is the repo
+      # owner's call to make, not something CI should start doing on its
+      # own. To enable, add codecov/codecov-action@v4 with coverage.xml.

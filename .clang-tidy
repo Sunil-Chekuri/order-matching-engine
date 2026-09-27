@@ -1,0 +1,28 @@
+# Conservative on purpose: this is the first clang-tidy pass over an
+# existing codebase, and enabling the whole modernize/readability families
+# would produce mostly style churn.
+#
+# bugprone, clang-analyzer, concurrency and performance are here because
+# they find defects rather than opinions. The exclusions below are checks
+# that conflict with choices this project made deliberately.
+Checks: >
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  concurrency-*,
+  performance-*,
+  misc-*,
+  cppcoreguidelines-pro-type-member-init,
+  cppcoreguidelines-slicing,
+  -bugprone-easily-swappable-parameters,
+  -misc-non-private-member-variables-in-classes,
+  -misc-include-cleaner,
+  -misc-use-anonymous-namespace
+
+# Advisory until a baseline is known. The CI job reports findings but does
+# not fail on them yet; tighten this once the count has been seen.
+WarningsAsErrors: ''
+
+HeaderFilterRegex: '(include|src)/.*\.h$'
+
+FormatStyle: none

@@ -33,8 +33,17 @@ if(ENGINE_WERROR)
     list(APPEND ENGINE_WARNING_FLAGS -Werror)
 endif()
 
+# Instrument for gcov. Kept off the fetched dependencies so their code
+# does not land in the coverage report.
+option(ENGINE_COVERAGE "Build with gcov instrumentation" OFF)
+
+# Semicolon-separated: address, undefined, thread. address and thread are
+# mutually exclusive. Unavailable on MinGW, which ships no sanitizer
+# runtimes -- these are for the Linux CI jobs.
+set(ENGINE_SANITIZE "" CACHE STRING "Sanitizers to enable")
+
 # All first-party targets go through here so none gets forgotten.
-function(engine_set_warnings target)
+function(engine_configure_target target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4)
 
@@ -43,6 +52,21 @@ function(engine_set_warnings target)
         endif()
     else()
         target_compile_options(${target} PRIVATE ${ENGINE_WARNING_FLAGS})
+    endif()
+
+    if(ENGINE_COVERAGE AND NOT MSVC)
+        target_compile_options(${target} PRIVATE --coverage -O0 -g)
+        target_link_options(${target} PRIVATE --coverage)
+    endif()
+
+    if(ENGINE_SANITIZE AND NOT MSVC)
+        string(REPLACE ";" "," sanitize_list "${ENGINE_SANITIZE}")
+
+        # Frame pointers and -g are what make a sanitizer report name a
+        # line rather than an address.
+        target_compile_options(${target} PRIVATE
+            -fsanitize=${sanitize_list} -fno-omit-frame-pointer -g)
+        target_link_options(${target} PRIVATE -fsanitize=${sanitize_list})
     endif()
 endfunction()
 
@@ -58,7 +82,7 @@ file(GLOB_RECURSE LIB_SOURCES
 
 add_library(engine_lib ${LIB_SOURCES})
 target_include_directories(engine_lib PUBLIC include)
-engine_set_warnings(engine_lib)
+engine_configure_target(engine_lib)
 
 # Winsock on Windows; POSIX has sockets in libc. PUBLIC so consumers
 # inherit it.
@@ -70,7 +94,7 @@ target_link_libraries(engine_lib PUBLIC Threads::Threads)
 
 add_executable(engine src/main.cpp)
 target_link_libraries(engine PRIVATE engine_lib)
-engine_set_warnings(engine)
+engine_configure_target(engine)
 
 enable_testing()
 add_subdirectory(tests)

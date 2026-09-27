@@ -148,3 +148,20 @@ TEST(LatencyStatsTest, MeanIsNotTruncatedToAnInteger)
 
     EXPECT_DOUBLE_EQ(stats.mean(), 1.5);
 }
+
+TEST(LatencyStatsTest, ReserveDoesNotChangeObservableState)
+{
+    // reserve() is called by main.cpp and the benchmarks but was never
+    // exercised by a test.
+    LatencyStats stats;
+    stats.reserve(1000);
+
+    EXPECT_EQ(stats.count(), 0u);
+
+    stats.record(5);
+    stats.record(15);
+
+    EXPECT_EQ(stats.count(), 2u);
+    EXPECT_EQ(stats.min(), 5);
+    EXPECT_EQ(stats.max(), 15);
+}
