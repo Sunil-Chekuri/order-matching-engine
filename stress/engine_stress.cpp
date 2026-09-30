@@ -217,7 +217,7 @@ namespace
         for (int t = 0; t < writer_count; ++t)
         {
             workers.emplace_back(
-                [&engine, &reads, t, per_writer, read_quota]()
+                [&engine, &reads, t, per_writer]()
                 {
                     int id = t * 1000000 + 1;
 

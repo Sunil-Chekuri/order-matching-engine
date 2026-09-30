@@ -222,7 +222,7 @@ TEST(TcpServerTest, ConcurrentClientsAreAllServedAndAllAccountedFor)
     for (int c = 0; c < client_count; ++c)
     {
         workers.emplace_back(
-            [&fixture, &accepted, c, per_client]()
+            [&fixture, &accepted, c]()
             {
                 TcpClient client;
 

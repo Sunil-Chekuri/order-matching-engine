@@ -88,7 +88,7 @@ TEST(ConcurrencyTest, SnapshotsTakenDuringWritesAreInternallyConsistent)
         });
 
     std::thread reader(
-        [&engine, &reader_finished, &snapshots_taken, &malformed, required_snapshots]()
+        [&engine, &reader_finished, &snapshots_taken, &malformed]()
         {
             for (int n = 0; n < required_snapshots; ++n)
             {

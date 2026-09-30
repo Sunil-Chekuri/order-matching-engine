@@ -105,8 +105,19 @@ bool TcpServer::isRunning() const
 
 void TcpServer::acceptLoop()
 {
+    // How long accept waits before rechecking running. Shutdown pays half
+    // of this on average, so keep it small; 100ms cost the test suite 5s.
+    const int kPollMs = 25;
+
     while (running)
     {
+        // Never block indefinitely in accept(). Closing the listener from
+        // another thread wakes a blocked accept() on Windows but not on
+        // Linux, where the blocked call keeps its own reference to the
+        // socket and shutdown would hang forever waiting to join.
+        if (!netcompat::waitReadable(static_cast<RawSocket>(listener), kPollMs))
+            continue;
+
         RawSocket client = ::accept(
             static_cast<RawSocket>(listener),
             nullptr,
@@ -214,16 +225,17 @@ void TcpServer::stop()
     if (!running.exchange(false))
         return;
 
-    // Closing the listening socket is what unblocks the accept thread;
-    // it has no flag to notice while it is parked in accept().
+    // The accept loop polls with a timeout, so it sees running == false
+    // and leaves on its own. Joining before closing the listener means we
+    // never close a socket another thread is still selecting on.
+    if (accept_thread.joinable())
+        accept_thread.join();
+
     if (static_cast<RawSocket>(listener) != kInvalidSocket)
     {
         closeSocket(static_cast<RawSocket>(listener));
         listener = static_cast<SocketHandle>(kInvalidSocket);
     }
-
-    if (accept_thread.joinable())
-        accept_thread.join();
 
     // Same problem one level down: a connection thread parked in recv()
     // will not see running == false until its socket goes away.

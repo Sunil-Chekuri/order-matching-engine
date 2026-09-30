@@ -17,6 +17,7 @@
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
@@ -112,6 +113,31 @@ namespace netcompat
             ::send(s, buffer, static_cast<std::size_t>(length), MSG_NOSIGNAL));
     }
 #endif
+
+    // True when the socket has a connection to accept or bytes to read,
+    // false on timeout or error. select() rather than poll()/WSAPoll()
+    // because it is spelled identically on both platforms.
+    inline bool waitReadable(
+        RawSocket socket,
+        int timeout_ms)
+    {
+        fd_set readable;
+        FD_ZERO(&readable);
+        FD_SET(socket, &readable);
+
+        timeval timeout;
+        timeout.tv_sec = timeout_ms / 1000;
+        timeout.tv_usec = (timeout_ms % 1000) * 1000;
+
+        // Winsock ignores nfds; POSIX needs the highest descriptor plus one.
+#ifdef _WIN32
+        const int nfds = 0;
+#else
+        const int nfds = socket + 1;
+#endif
+
+        return ::select(nfds, &readable, nullptr, nullptr, &timeout) > 0;
+    }
 
     inline bool sendAll(
         RawSocket socket,
